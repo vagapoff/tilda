@@ -1,4 +1,4 @@
-# (function($) {
+(function($) {
     "use strict";
     $(document).ready(function(){
         $('[data-record-type="390"],[data-record-type="702"],[data-record-type="131"]').addClass('notme')
