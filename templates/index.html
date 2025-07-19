@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Transcription Agent</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-video"></i> Video Transcription Agent</h1>
+            <p>Преобразуйте видео в текст с помощью ИИ</p>
+        </div>
+
+        <div class="main-card">
+            <div class="demo-notice">
+                <h3><i class="fas fa-info-circle"></i> Демо версия</h3>
+                <p>Это упрощенная демо-версия. Функции транскрипции будут добавлены в следующих обновлениях.</p>
+            </div>
+
+            <div class="tab-container">
+                <div class="tab-buttons">
+                    <button class="tab-button active" onclick="switchTab('file')">
+                        <i class="fas fa-upload"></i> Загрузить файл
+                    </button>
+                    <button class="tab-button" onclick="switchTab('url')">
+                        <i class="fas fa-link"></i> Ссылка на видео
+                    </button>
+                </div>
+
+                <!-- Вкладка загрузки файла -->
+                <div id="file-tab" class="tab-content active">
+                    <form id="uploadForm" enctype="multipart/form-data">
+                        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                            <div class="upload-icon">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                            </div>
+                            <h3>Выберите видео или аудио файл</h3>
+                            <p>Нажмите здесь или перетащите файл для загрузки</p>
+                            <input type="file" id="fileInput" accept="video/*,audio/*" style="display: none;">
+                        </div>
+                        
+                        <div class="progress-container" id="progressContainer">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <p id="progressText">Загрузка...</p>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" id="uploadBtn" disabled>
+                            <i class="fas fa-play"></i> Начать транскрипцию
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Вкладка URL -->
+                <div id="url-tab" class="tab-content">
+                    <form id="urlForm">
+                        <div class="form-group">
+                            <label class="form-label" for="videoUrl">
+                                <i class="fas fa-link"></i> URL видео
+                            </label>
+                            <input 
+                                type="url" 
+                                id="videoUrl" 
+                                class="form-input" 
+                                placeholder="https://www.youtube.com/watch?v=..."
+                                required
+                            >
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-download"></i> Скачать и транскрибировать
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Результаты -->
+            <div id="results" style="display: none;">
+                <h3><i class="fas fa-file-alt"></i> Результат транскрипции</h3>
+                <div id="resultContent"></div>
+                <div style="margin-top: 20px;">
+                    <button class="btn btn-primary" onclick="downloadResult()">
+                        <i class="fas fa-download"></i> Скачать результат
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTaskId = null;
+
+        // Переключение вкладок
+        function switchTab(tabName) {
+            // Убираем активные классы
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            // Добавляем активные классы
+            event.target.classList.add('active');
+            document.getElementById(tabName + '-tab').classList.add('active');
+        }
+
+        // Обработка выбора файла
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const uploadBtn = document.getElementById('uploadBtn');
+                uploadBtn.disabled = false;
+                
+                // Показываем информацию о файле
+                const uploadArea = document.querySelector('.upload-area');
+                uploadArea.innerHTML = `
+                    <div class="file-info">
+                        <h4><i class="fas fa-file-video"></i> ${file.name}</h4>
+                        <p>Размер: ${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                        <p>Тип: ${file.type}</p>
+                    </div>
+                `;
+            }
+        });
+
+        // Обработка формы загрузки файла
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showMessage('Выберите файл для загрузки', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                showProgress(true);
+                updateProgress(50, 'Загрузка файла...');
+
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    updateProgress(100, 'Файл загружен успешно!');
+                    setTimeout(() => {
+                        showProgress(false);
+                        showResults(result);
+                    }, 1000);
+                } else {
+                    throw new Error(result.detail || 'Ошибка загрузки');
+                }
+            } catch (error) {
+                showProgress(false);
+                showMessage('Ошибка: ' + error.message, 'error');
+            }
+        });
+
+        // Обработка формы URL
+        document.getElementById('urlForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const url = document.getElementById('videoUrl').value;
+            
+            if (!url) {
+                showMessage('Введите URL видео', 'error');
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('url', url);
+
+                const response = await fetch('/transcribe-url', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    currentTaskId = result.task_id;
+                    showResults(result);
+                } else {
+                    throw new Error(result.detail || 'Ошибка обработки URL');
+                }
+            } catch (error) {
+                showMessage('Ошибка: ' + error.message, 'error');
+            }
+        });
+
+        // Показать прогресс
+        function showProgress(show) {
+            const container = document.getElementById('progressContainer');
+            container.style.display = show ? 'block' : 'none';
+        }
+
+        // Обновить прогресс
+        function updateProgress(percent, text) {
+            document.getElementById('progressFill').style.width = percent + '%';
+            document.getElementById('progressText').textContent = text;
+        }
+
+        // Показать сообщение
+        function showMessage(message, type) {
+            const existingMessage = document.querySelector('.status-message');
+            if (existingMessage) {
+                existingMessage.remove();
+            }
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `status-message status-${type}`;
+            messageDiv.textContent = message;
+            
+            document.querySelector('.main-card').appendChild(messageDiv);
+            
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 5000);
+        }
+
+        // Показать результаты
+        function showResults(result) {
+            const resultsDiv = document.getElementById('results');
+            const contentDiv = document.getElementById('resultContent');
+            
+            contentDiv.innerHTML = `
+                <div class="file-info">
+                    <h4>Информация о задаче</h4>
+                    <p><strong>ID:</strong> ${result.file_id || result.task_id}</p>
+                    <p><strong>Статус:</strong> ${result.status}</p>
+                    <p><strong>Сообщение:</strong> ${result.message}</p>
+                </div>
+            `;
+            
+            resultsDiv.style.display = 'block';
+            currentTaskId = result.file_id || result.task_id;
+        }
+
+        // Скачать результат
+        async function downloadResult() {
+            if (!currentTaskId) {
+                showMessage('Нет результата для скачивания', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/download/${currentTaskId}`);
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `transcription_${currentTaskId}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    
+                    showMessage('Файл скачан успешно!', 'success');
+                } else {
+                    throw new Error('Ошибка скачивания');
+                }
+            } catch (error) {
+                showMessage('Ошибка: ' + error.message, 'error');
+            }
+        }
+
+        // Drag & Drop функциональность
+        const uploadArea = document.querySelector('.upload-area');
+        
+        uploadArea.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', function(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                document.getElementById('fileInput').files = files;
+                document.getElementById('fileInput').dispatchEvent(new Event('change'));
+            }
+        });
+    </script>
+</body>
+</html>
